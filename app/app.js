@@ -13,9 +13,13 @@ const gateway = new (require("gateway"))({
     services: {},
     express: express,
     registerServiceRouter: (serviceName, router) => {
-        router.post("/init", (req, res) => {
+        router.post("/init", async (req, res) => {
             const serviceName = req.params.service;
-            gateway.handleCSRequest(serviceName, req, res);
+            const handleFunc = gateway.preprocessCSRequest(serviceName, req, res);
+
+            if (!handleFunc) {
+                await handleFunc(req, res);
+            }
         });
         app.use("/service/:service", router);
     }

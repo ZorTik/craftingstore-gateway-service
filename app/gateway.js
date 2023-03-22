@@ -21,14 +21,14 @@ GatewayMediator.prototype.registerService = function(serviceName, service) {
     this.registerServiceRouter(serviceName, router);
 }
 
-GatewayMediator.prototype.handleCSRequest = function(serviceName, request, response) {
+GatewayMediator.prototype.preprocessCSRequest = function(serviceName, request, response) {
     const statusBody = (status, msg) => {
         return response.status(status).json({status: status, message: msg});
     }
 
     if (!this.services[serviceName]) {
         statusBody(404, 'Service not found');
-        return;
+        return null;
     }
 
     const hmac = require('crypto').createHmac("sha256", process.env.GATEWAY_SECRET_KEY);
@@ -38,10 +38,10 @@ GatewayMediator.prototype.handleCSRequest = function(serviceName, request, respo
     if (!request.headers['X-Signature'] || request.headers['X-Signature'] !== hash) {
         this.logger.info("Invalid signature: " + request.headers['X-Signature'] + " vs " + hash);
         statusBody(403, 'Unauthorized');
-        return;
+        return null;
     }
 
-    this.services[serviceName].handle(request, response);
+    return this.services[serviceName].handle;
 }
 
 function validate(obj, key) {
