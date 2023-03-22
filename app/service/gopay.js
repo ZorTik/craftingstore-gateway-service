@@ -66,7 +66,6 @@ const gopay = {
      * @returns {Promise<any>} Response.
      */
     async createNewPayment(csRequest) {
-        // TODO: https://doc.gopay.com/#payment-creation
         const paymentInstruments = await this.fetchPaymentInstruments(csRequest.currency);
         const allowedInstruments = paymentInstruments.map(instrument => instrument.paymentInstrument);
         const payer = {
