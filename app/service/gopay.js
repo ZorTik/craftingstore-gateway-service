@@ -50,7 +50,8 @@ const gopay = {
      * @returns {Promise<*>} Same fetch init.
      */
     async prepareGopayRequest(fetchInit = {}) {
-        if (Date.now() > this.tokenExpires) {
+        if (Date.now() > this.tokenExpires - (this.tokenExpires * 0.1)) {
+            console.log("Fetching new token...");
             await this.fetchNewToken();
         }
         fetchInit.headers = fetchInit.headers || {};
