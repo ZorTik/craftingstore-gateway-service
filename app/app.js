@@ -21,7 +21,7 @@ const gateway = new (require("gateway"))({
                 await handleFunc(req, res);
             }
         });
-        app.use("/service/:service", router);
+        app.use("/service/" + serviceName, router);
     }
 });
 
