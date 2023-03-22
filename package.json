@@ -7,7 +7,7 @@
     "start": "node index.js"
   },
   "keywords": [],
-  "author": "",
+  "author": "ZorTik",
   "license": "MIT",
   "dependencies": {
     "bcrypt": "^5.1.0",
