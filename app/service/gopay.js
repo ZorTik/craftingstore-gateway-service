@@ -1,5 +1,4 @@
 const requireEnv = require("../util").requireEnv;
-const FormData = require("form-data");
 const {digestBody} = require("../util");
 const notificationPath = "/notification";
 const gopayApiUrl = process.env.GOPAY_URL;
@@ -45,7 +44,7 @@ const gopay = {
         const response = (await fetch(gopayApiUrl + `/api/eshops/eshop/${this.goid}/payment-instruments/${currency}`,
             await this.prepareGopayRequest())
             .then(res => res.json()));
-        logger.debug(`Payment instruments: ${JSON.stringify(response)}`);
+        logger.debug(`GoPay: Payment instruments: ${JSON.stringify(response)}`);
         return response.enabledPaymentInstruments;
     },
     async fetchTransactionStatus(id) {
@@ -59,8 +58,8 @@ const gopay = {
      * @returns {Promise<*>} Same fetch init.
      */
     async prepareGopayRequest(fetchInit = {}) {
-        if (Date.now() > this.tokenExpires - (this.tokenExpires * 0.1)) {
-            logger.info("Token expired, fetching new one.");
+        if (Date.now() > this.tokenExpires - 10000) {
+            logger.info("GoPay: Token expired, fetching new one.");
             await this.fetchNewToken();
         }
         fetchInit.headers = fetchInit.headers || {};
@@ -138,10 +137,10 @@ async function incomingStoreRequest(request, response) {
     const gopayResponse = await gopay.createNewPayment(csRequest);
     const gpTransactionId = gopayResponse.id;
 
-    logger.debug(`CS Request: ${JSON.stringify(csRequest)}`);
+    logger.debug(`GoPay: CS Request: ${JSON.stringify(csRequest)}`);
 
     if (!gpTransactionId || !gopayResponse.gw_url)
-        throw new Error(`Invalid GoPay response: ${JSON.stringify(gopayResponse)}`);
+        throw new Error(`GoPay: Invalid GoPay response: ${JSON.stringify(gopayResponse)}`);
 
     activeTransactions[gpTransactionId] = "CREATED";
     transactionCSIds[gpTransactionId] = csRequest.transactionId;
@@ -190,13 +189,15 @@ function init(router, _logger) {
 
             logger.info(`GoPay: Sending callback to CS for transaction ${csId}.`);
 
-            await fetch("https://api.craftingstore.net/callback/custom", {
+            const callbackResponse = await fetch("https://api.craftingstore.net/callback/custom", {
                 method: "post",
                 headers: {
                     "X-Signature": hash,
                 },
                 body: rawBody
-            });
+            }).then(res => res.json());
+
+            logger.debug(`GoPay: CS Callback response: ${JSON.stringify(callbackResponse)}`);
         }
     });
 }
