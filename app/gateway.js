@@ -1,5 +1,5 @@
 const {requireEnv} = require("./util");
-const defaultLogger = {info: console.log, severe: console.error};
+const defaultLogger = {info: console.log, error: console.error, debug: console.debug};
 
 function GatewayMediator(options) {
     validate(options, 'express');
@@ -25,25 +25,31 @@ GatewayMediator.prototype.registerService = function(serviceName, service) {
 
 GatewayMediator.prototype.preprocessCSRequest = function(serviceName, request, response) {
     const statusBody = (status, msg) => {
-        return response.status(status).json({status: status, message: msg});
+        response.status(status).json({success: status === 200, status: status, message: msg});
+        return msg;
     }
 
     if (!this.services[serviceName]) {
-        statusBody(404, 'Service not found');
-        return null;
+        return statusBody(404, `Service ${serviceName} not found.
+        (Available: ${Object.keys(this.services).join(", ")})`);
     }
 
     this.logger.info(`Received request for service ${serviceName}`);
 
+    const body = String(request.rawBody);
     const hmac = require('crypto').createHmac("sha256", process.env.GATEWAY_SECRET_KEY);
-    hmac.update(request.rawBody);
+    hmac.update(body);
     const hash = hmac.digest('hex');
 
-    if (!request.headers['X-Signature'] || request.headers['X-Signature'] !== hash) {
-        this.logger.severe("Invalid signature: " + request.headers['X-Signature'] + " vs " + hash);
-        statusBody(403, 'Unauthorized');
-        return null;
+    this.logger.debug("Body: " + body);
+
+    if (!request.headers['x-signature'] || request.headers['x-signature'] !== hash) {
+        this.logger.error("Invalid signature: " + request.headers['x-signature'] + " vs " + hash);
+        response.status(400).send(`{"success":false}`);
+        return 'Unauthorized';
     }
+
+    this.logger.debug(`Request for service ${serviceName} is valid`);
 
     return this.services[serviceName].handle;
 }

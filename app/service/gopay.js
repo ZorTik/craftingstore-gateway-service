@@ -1,5 +1,5 @@
-const express = require("express");
 const requireEnv = require("../util").requireEnv;
+const FormData = require("form-data");
 const {digestBody} = require("../util");
 const notificationPath = "/notification";
 const gopayApiUrl = process.env.GOPAY_URL;
@@ -7,8 +7,9 @@ const activeTransactions = {}; // Id (GoPay), Status
 const transactionCSIds = {}; // Id (GoPay), CSId
 
 let fetch;
+let logger;
 (async function() {
-    fetch = await import("node-fetch");
+    fetch = (await import("node-fetch")).default;
 })();
 
 const gopay = {
@@ -17,32 +18,35 @@ const gopay = {
     clientSecret: "",
     clientToken: "",
     tokenExpires: 0,
-    allowedSwifts: [],
     goid: "",
     /**
      * Fetches new token from GoPay.
      * @returns {Promise<void>} Nothing.
      */
     async fetchNewToken() {
-        const res = await fetch(gopayApiUrl + "/api/oauth2/token?scope=payment-all&grant_type=client_credentials", {
+        const res = await fetch(gopayApiUrl + "/api/oauth2/token", {
             method: "post",
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accepts": "application/json",
                 "Authorization": "Basic " + Buffer.from(this.clientId + ":" + this.clientSecret).toString("base64")
-            }
+            },
+            body: "scope=payment-all&grant_type=client_credentials"
         }).then(res => res.json());
 
         if (!res.access_token || !res.expires_in)
-            throw new Error("GoPay token request failed!");
+            throw new Error(`Invalid GoPay response: ${JSON.stringify(res)}`);
 
         this.clientToken = res.access_token;
         this.tokenExpires = Date.now() + res.expires_in * 1000;
     },
     async fetchPaymentInstruments(currency) {
-        return (await fetch(gopayApiUrl + `/api/eshops/eshop/${this.goid}/payment-instruments/${currency}`,
+        currency = currency.toUpperCase();
+        const response = (await fetch(gopayApiUrl + `/api/eshops/eshop/${this.goid}/payment-instruments/${currency}`,
             await this.prepareGopayRequest())
-            .then(res => res.json())).enabledPaymentInstruments;
+            .then(res => res.json()));
+        logger.debug(`Payment instruments: ${JSON.stringify(response)}`);
+        return response.enabledPaymentInstruments;
     },
     async fetchTransactionStatus(id) {
         return (await fetch(gopayApiUrl + `/api/payments/payment/${id}`,
@@ -56,7 +60,7 @@ const gopay = {
      */
     async prepareGopayRequest(fetchInit = {}) {
         if (Date.now() > this.tokenExpires - (this.tokenExpires * 0.1)) {
-            console.log("Fetching new token...");
+            logger.info("Token expired, fetching new one.");
             await this.fetchNewToken();
         }
         fetchInit.headers = fetchInit.headers || {};
@@ -75,9 +79,7 @@ const gopay = {
         const paymentInstruments = await this.fetchPaymentInstruments(csRequest.currency);
         const allowedInstruments = paymentInstruments.map(instrument => instrument.paymentInstrument);
         paymentInstruments.forEach(instrument => {
-            if (instrument.paymentInstrument === "BANK_ACCOUNT") {
-                instrument.swifts.forEach(swift => allowedSwifts.push(swift.swift));
-            }
+            if (instrument.swifts) instrument.swifts.forEach(swift => allowedSwifts.push(swift.swift));
         })
         const payer = {
             allowed_payment_instruments: allowedInstruments,
@@ -115,7 +117,7 @@ const gopay = {
                 order_description: "",
                 callback: {
                     return_url: csRequest.webhook.successUrl,
-                    notification_url: this.hostUrl + notificationPath
+                    notification_url: this.hostUrl + "/service/gopay" + notificationPath
                 },
                 additional_params: []
             })
@@ -131,37 +133,46 @@ const gopay = {
 async function incomingStoreRequest(request, response) {
     // Already verified in mediator
     const csRequest = request.body;
+    // CS sends lowercase currency codes, but GoPay requires uppercase
+    csRequest.currency = csRequest.currency.toUpperCase();
     const gopayResponse = await gopay.createNewPayment(csRequest);
-    const gpTransactionId = gopayResponse.id; // TODO: Save
+    const gpTransactionId = gopayResponse.id;
+
+    logger.debug(`CS Request: ${JSON.stringify(csRequest)}`);
+
+    if (!gpTransactionId || !gopayResponse.gw_url)
+        throw new Error(`Invalid GoPay response: ${JSON.stringify(gopayResponse)}`);
+
     activeTransactions[gpTransactionId] = "CREATED";
     transactionCSIds[gpTransactionId] = csRequest.transactionId;
     response.status(200).json({
         success: true,
         data: {url: gopayResponse.gw_url}
     });
+    logger.info(`GoPay: New payment created. (CS ID: ${csRequest.transactionId}, GP ID: ${gpTransactionId})`);
 }
 
 /**
  * Initializes the service.
  * @param router Express router.
- * @param logger Logger.
+ * @param _logger Logger.
  */
-function init(router, logger) {
+function init(router, _logger) {
     requireEnv("HOST_URL");
     requireEnv("GOPAY_URL");
     requireEnv("GOPAY_CLIENT_ID");
     requireEnv("GOPAY_CLIENT_SECRET");
-    requireEnv("GOPAY_ALLOWED_SWIFTS");
     requireEnv("GOPAY_GOID");
 
+    logger = _logger;
+
+    gopay.hostUrl = process.env.HOST_URL;
     gopay.clientId = process.env.GOPAY_CLIENT_ID;
     gopay.clientSecret = process.env.GOPAY_CLIENT_SECRET;
-    gopay.allowedSwifts = process.env.GOPAY_ALLOWED_SWIFTS.split(",");
     gopay.goid = process.env.GOPAY_GOID;
 
     logger.info(`GoPay: Service initialized. (GOID: ${gopay.goid})`);
 
-    router.use("/init", express.json());
     router.get(notificationPath, async (req, res) => {
         const id = req.query.id;
         const status = await gopay.fetchTransactionStatus(id);

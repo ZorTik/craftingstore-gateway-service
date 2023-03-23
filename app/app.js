@@ -1,14 +1,10 @@
 const express = require("express");
 const app = express();
+const contentType = require("content-type");
 const logger = require("./log");
-app.use((req, res, next) => {
-    let data = "";
-    req.on("data", chunk => {data += chunk;});
-    req.on("end", () => {
-        req.rawBody = data;
-        next();
-    });
-});
+const getRawBody = require("raw-body");
+
+process.env.NODE_DEBUG = "http";
 
 const gateway = new (require("./gateway"))({
     services: {},
@@ -16,11 +12,20 @@ const gateway = new (require("./gateway"))({
     logger: logger,
     registerServiceRouter: (serviceName, router) => {
         router.post("/init", async (req, res) => {
-            const serviceName = req.params.service;
-            const handleFunc = gateway.preprocessCSRequest(serviceName, req, res);
-
-            if (!handleFunc) {
-                await handleFunc(req, res);
+            req.rawBody = await getRawBody(req, {
+                length: req.headers['content-length'],
+                limit: "1mb",
+                encoding: contentType.parse(req).parameters.charset,
+            });
+            req.body = JSON.parse(req.rawBody);
+            try {
+                const handleFunc = gateway.preprocessCSRequest(serviceName, req, res);
+                if (typeof handleFunc === "function") {
+                    await handleFunc(req, res);
+                } else throw new Error(handleFunc);
+            } catch (e) {
+                logger.error(`An error occured: ${e}`);
+                console.trace(e);
             }
         });
         app.use("/service/" + serviceName, router);
