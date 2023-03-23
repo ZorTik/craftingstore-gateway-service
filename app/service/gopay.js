@@ -199,6 +199,7 @@ function init(router, _logger) {
 
             logger.debug(`GoPay: CS Callback response: ${JSON.stringify(callbackResponse)}`);
         }
+        res.status(200).json({success: true});
     });
 }
 
