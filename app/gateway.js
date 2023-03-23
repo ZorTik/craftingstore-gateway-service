@@ -1,5 +1,5 @@
 const {requireEnv} = require("./util");
-const defaultLogger = {info: console.log};
+const defaultLogger = {info: console.log, severe: console.error};
 
 function GatewayMediator(options) {
     validate(options, 'express');
@@ -15,10 +15,12 @@ function GatewayMediator(options) {
 }
 
 GatewayMediator.prototype.registerService = function(serviceName, service) {
+    this.logger.info(`Registering service ${serviceName}`);
     this.services[serviceName] = service;
     const router = this.express.Router();
-    service.init(router);
+    service.init(router, this.logger);
     this.registerServiceRouter(serviceName, router);
+    this.logger.info(`${serviceName} registered`);
 }
 
 GatewayMediator.prototype.preprocessCSRequest = function(serviceName, request, response) {
@@ -31,12 +33,14 @@ GatewayMediator.prototype.preprocessCSRequest = function(serviceName, request, r
         return null;
     }
 
+    this.logger.info(`Received request for service ${serviceName}`);
+
     const hmac = require('crypto').createHmac("sha256", process.env.GATEWAY_SECRET_KEY);
     hmac.update(request.rawBody);
     const hash = hmac.digest('hex');
 
     if (!request.headers['X-Signature'] || request.headers['X-Signature'] !== hash) {
-        this.logger.info("Invalid signature: " + request.headers['X-Signature'] + " vs " + hash);
+        this.logger.severe("Invalid signature: " + request.headers['X-Signature'] + " vs " + hash);
         statusBody(403, 'Unauthorized');
         return null;
     }

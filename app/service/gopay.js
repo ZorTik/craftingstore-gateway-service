@@ -1,11 +1,16 @@
 const express = require("express");
 const requireEnv = require("../util").requireEnv;
-const fetch = require("node-fetch");
 const {digestBody} = require("../util");
 const notificationPath = "/notification";
 const gopayApiUrl = process.env.GOPAY_URL;
 const activeTransactions = {}; // Id (GoPay), Status
 const transactionCSIds = {}; // Id (GoPay), CSId
+
+let fetch;
+(async function() {
+    fetch = await import("node-fetch");
+})();
+
 const gopay = {
     hostUrl: "",
     clientId: "",
@@ -66,13 +71,19 @@ const gopay = {
      * @returns {Promise<any>} Response.
      */
     async createNewPayment(csRequest) {
+        const allowedSwifts = [];
         const paymentInstruments = await this.fetchPaymentInstruments(csRequest.currency);
         const allowedInstruments = paymentInstruments.map(instrument => instrument.paymentInstrument);
+        paymentInstruments.forEach(instrument => {
+            if (instrument.paymentInstrument === "BANK_ACCOUNT") {
+                instrument.swifts.forEach(swift => allowedSwifts.push(swift.swift));
+            }
+        })
         const payer = {
             allowed_payment_instruments: allowedInstruments,
             default_payment_instrument: allowedInstruments[0],
-            allowed_swifts: this.allowedSwifts,
-            default_swift: this.allowedSwifts[0],
+            allowed_swifts: allowedSwifts,
+            default_swift: allowedSwifts[0],
             contact: {
                 first_name: csRequest.user.firstName ?? "",
                 last_name: csRequest.user.lastName ?? "",
@@ -133,8 +144,9 @@ async function incomingStoreRequest(request, response) {
 /**
  * Initializes the service.
  * @param router Express router.
+ * @param logger Logger.
  */
-function init(router) {
+function init(router, logger) {
     requireEnv("HOST_URL");
     requireEnv("GOPAY_URL");
     requireEnv("GOPAY_CLIENT_ID");
@@ -147,11 +159,15 @@ function init(router) {
     gopay.allowedSwifts = process.env.GOPAY_ALLOWED_SWIFTS.split(",");
     gopay.goid = process.env.GOPAY_GOID;
 
+    logger.info(`GoPay: Service initialized. (GOID: ${gopay.goid})`);
+
     router.use("/init", express.json());
     router.get(notificationPath, async (req, res) => {
         const id = req.query.id;
         const status = await gopay.fetchTransactionStatus(id);
-        activeTransactions[id] = status; // TODO: Clear PAID transactions
+        activeTransactions[id] = status;
+
+        logger.info(`GoPay: Transaction ${id} status changed to ${status}.`);
 
         if (status === "PAID" && transactionCSIds[id]) {
             const csId = transactionCSIds[id];
@@ -160,6 +176,8 @@ function init(router) {
 
             const rawBody = `{"type":"paid","transactionId":"${csId}"}`;
             const hash = digestBody(rawBody);
+
+            logger.info(`GoPay: Sending callback to CS for transaction ${csId}.`);
 
             await fetch("https://api.craftingstore.net/callback/custom", {
                 method: "post",

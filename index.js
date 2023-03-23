@@ -1,2 +1,2 @@
 require("dotenv").config();
-require("app/app");
+require("./app/app");

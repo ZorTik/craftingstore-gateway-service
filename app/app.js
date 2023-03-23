@@ -1,5 +1,6 @@
 const express = require("express");
 const app = express();
+const logger = require("./log");
 app.use((req, res, next) => {
     let data = "";
     req.on("data", chunk => {data += chunk;});
@@ -9,9 +10,10 @@ app.use((req, res, next) => {
     });
 });
 
-const gateway = new (require("gateway"))({
+const gateway = new (require("./gateway"))({
     services: {},
     express: express,
+    logger: logger,
     registerServiceRouter: (serviceName, router) => {
         router.post("/init", async (req, res) => {
             const serviceName = req.params.service;
@@ -31,5 +33,5 @@ process.env.ENABLED_SERVICES.split(",").forEach(serviceName => {
 });
 
 app.listen(process.env.PORT, () => {
-    console.log(`Gateway listening on port ${process.env.PORT}`);
+    logger.info(`Gateway listening on port ${process.env.PORT}`);
 });

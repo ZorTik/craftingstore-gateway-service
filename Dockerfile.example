@@ -1,0 +1,17 @@
+FROM node:16
+WORKDIR /app
+COPY package*.json .
+RUN npm install
+COPY . .
+
+ENV HOST_URL=https://example.com
+ENV PORT=8888
+ENV ENABLED_SERVICES=gopay
+ENV GATEWAY_SECRET_KEY=secret
+ENV GOPAY_URL=https://gw.sandbox.gopay.com
+ENV GOPAY_CLIENT_ID=client_id
+ENV GOPAY_CLIENT_SECRET=client_secret
+ENV GOPAY_ALLOWED_SWIFTS=FIOBCZPP,BREXCZPP
+ENV GOPAY_GOID=123456789
+
+CMD ["npm", "start"]
