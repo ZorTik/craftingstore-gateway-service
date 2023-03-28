@@ -1,3 +1,5 @@
+import {get} from "../database";
+
 const requireEnv = require("../util").requireEnv;
 const {digestBody} = require("../util");
 const notificationPath = "/notification";
@@ -144,6 +146,11 @@ async function incomingStoreRequest(request, response) {
 
     activeTransactions[gpTransactionId] = "CREATED";
     transactionCSIds[gpTransactionId] = csRequest.transactionId;
+
+    get().savePaymentModel({
+        gp_id: gpTransactionId,
+        cs_id: csRequest.transactionId,
+    });
     response.status(200).json({
         success: true,
         data: {url: gopayResponse.gw_url}
@@ -179,11 +186,9 @@ function init(router, _logger) {
 
         logger.info(`GoPay: Transaction ${id} status changed to ${status}.`);
 
-        if (status === "PAID" && transactionCSIds[id]) {
-            const csId = transactionCSIds[id];
-            delete transactionCSIds[id];
-            delete activeTransactions[id];
-
+        const transactionModel = get().getPaymentModel(id);
+        if (status === "PAID" && transactionModel) {
+            const csId = transactionModel.cs_id;
             const rawBody = `{"type":"paid","transactionId":"${csId}"}`;
             const hash = digestBody(rawBody);
 
