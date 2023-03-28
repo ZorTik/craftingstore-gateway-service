@@ -1,0 +1,17 @@
+FROM openjdk:8-jdk-alpine
+
+RUN apk add --no-cache --update curl ca-certificates openssl git tar bash sqlite fontconfig \
+    && adduser --disabled-password --home /home/container container
+
+RUN apk add npm
+
+USER container
+ENV USER=container HOME=/home/container
+
+WORKDIR /home/container
+
+COPY package*.json .
+RUN npm install
+COPY . .
+COPY ./entrypoint.sh /entrypoint.sh
+CMD ["/bin/bash", "/entrypoint.sh"]
