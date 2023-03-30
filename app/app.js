@@ -6,6 +6,9 @@ const getRawBody = require("raw-body");
 
 process.env.NODE_DEBUG = "http";
 
+app.set('views', process.cwd() + "/app/views");
+app.set('view engine', 'ejs');
+
 const gateway = new (require("./gateway"))({
     services: {},
     express: express,

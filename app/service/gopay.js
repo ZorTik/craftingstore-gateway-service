@@ -1,7 +1,6 @@
-import {get} from "../database";
-
 const requireEnv = require("../util").requireEnv;
 const {digestBody} = require("../util");
+const {get} = require("../database");
 const notificationPath = "/notification";
 const gopayApiUrl = process.env.GOPAY_URL;
 const activeTransactions = {}; // Id (GoPay), Status
@@ -9,6 +8,7 @@ const transactionCSIds = {}; // Id (GoPay), CSId
 
 let fetch;
 let logger;
+let db;
 (async function() {
     fetch = (await import("node-fetch")).default;
 })();
@@ -147,7 +147,7 @@ async function incomingStoreRequest(request, response) {
     activeTransactions[gpTransactionId] = "CREATED";
     transactionCSIds[gpTransactionId] = csRequest.transactionId;
 
-    get().savePaymentModel({
+    await db.savePaymentModel({
         gp_id: gpTransactionId,
         cs_id: csRequest.transactionId,
     });
@@ -177,34 +177,44 @@ function init(router, _logger) {
     gopay.clientSecret = process.env.GOPAY_CLIENT_SECRET;
     gopay.goid = process.env.GOPAY_GOID;
 
-    logger.info(`GoPay: Service initialized. (GOID: ${gopay.goid})`);
+    get().then((_db) => {
+        db = _db;
+        logger.info(`GoPay: Service initialized. (GOID: ${gopay.goid})`);
 
-    router.get(notificationPath, async (req, res) => {
-        const id = req.query.id;
-        const status = await gopay.fetchTransactionStatus(id);
-        activeTransactions[id] = status;
+        router.get(notificationPath, async (req, res) => {
+            const id = req.query.id;
+            const status = await gopay.fetchTransactionStatus(id);
+            activeTransactions[id] = status;
 
-        logger.info(`GoPay: Transaction ${id} status changed to ${status}.`);
+            logger.info(`GoPay: Transaction ${id} status changed to ${status}.`);
 
-        const transactionModel = get().getPaymentModel(id);
-        if (status === "PAID" && transactionModel) {
-            const csId = transactionModel.cs_id;
-            const rawBody = `{"type":"paid","transactionId":"${csId}"}`;
-            const hash = digestBody(rawBody);
+            const transactionModel = await db.getPaymentModel(id);
+            if (status === "PAID" && transactionModel) {
+                const csId = transactionModel.cs_id;
+                const rawBody = `{"type":"paid","transactionId":"${csId}"}`;
+                const hash = digestBody(rawBody);
 
-            logger.info(`GoPay: Sending callback to CS for transaction ${csId}.`);
+                logger.info(`GoPay: Sending callback to CS for transaction ${csId}.`);
 
-            const callbackResponse = await fetch("https://api.craftingstore.net/callback/custom", {
-                method: "post",
-                headers: {
-                    "X-Signature": hash,
-                },
-                body: rawBody
-            }).then(res => res.json());
+                const callbackResponse = await fetch("https://api.craftingstore.net/callback/custom", {
+                    method: "post",
+                    headers: {
+                        "X-Signature": hash,
+                    },
+                    body: rawBody
+                }).then(res => res.json());
 
-            logger.debug(`GoPay: CS Callback response: ${JSON.stringify(callbackResponse)}`);
-        }
-        res.status(200).json({success: true});
+                logger.debug(`GoPay: CS Callback response: ${JSON.stringify(callbackResponse)}`);
+            }
+            res.status(200).json({success: true});
+        });
+        router.get("/", (req, res) => {
+            res.render('gopay', {});
+            // TODO: View gopay service page
+        });
+    }).catch(() => {
+        logger.error("GoPay: Failed to initialize service.");
+        process.exit(1);
     });
 }
 
