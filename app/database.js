@@ -10,9 +10,7 @@ module.exports.register = reg = (type, db) => DB_TYPES[type] = db;
 module.exports.get = async () => {
     if (!db) {
         const type = requireEnv("DATA_SOURCE");
-        if (!DB_TYPES[type])
-            throw new Error(`Unknown data source type: ${type}`);
-
+        if (!DB_TYPES[type]) throw new Error(`Unknown data source type: ${type}`);
         db = DB_TYPES[type];
 
         function complete() {
@@ -75,8 +73,18 @@ reg("mysql", {
                             this.log.error(`MySQL: Failed to create table: ${err}`);
                             process.exit(1);
                         });
+                    log.info("MySQL: Starting keepalive...")
+                    setInterval(() => this.db.query("SELECT 1;"), 1000*60*5);
                 }
             });
-        })
+            connection.on("error", (err) => {
+                if (err.contains("ECONNRESET")) {
+                    log.error("MySQL: Connection reset, reconnecting...");
+                    this.db.init(this.db);
+                } else {
+                    log.error(`MySQL: Connection error: ${err}`);
+                }
+            });
+        });
     }
 })

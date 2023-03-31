@@ -208,8 +208,12 @@ function init(router, _logger) {
             }
             res.status(200).json({success: true});
         });
-        router.get("/", (req, res) => {
-            res.render('gopay', {});
+        router.use("/", (req, res) => {
+            if (req.method === "GET") {
+                res.render('gopay', {});
+            } else if(req.method === "POST") {
+
+            }
             // TODO: View gopay service page
         });
     }).catch(() => {
