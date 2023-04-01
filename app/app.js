@@ -15,13 +15,15 @@ const gateway = new (require("./gateway"))({
     logger: logger,
     registerServiceRouter: (serviceName, router) => {
         router.post("/init", async (req, res) => {
-            req.rawBody = await getRawBody(req, {
-                length: req.headers['content-length'],
-                limit: "1mb",
-                encoding: contentType.parse(req).parameters.charset,
-            });
-            req.body = JSON.parse(req.rawBody);
+            const host = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+            logger.info(`Received init request for service ${serviceName} from ${host}...`)
             try {
+                req.rawBody = await getRawBody(req, {
+                    length: req.headers['content-length'],
+                    limit: "1mb",
+                    encoding: contentType.parse(req).parameters.charset,
+                });
+                req.body = JSON.parse(req.rawBody);
                 const handleFunc = gateway.preprocessCSRequest(serviceName, req, res);
                 if (typeof handleFunc === "function") {
                     await handleFunc(req, res);
@@ -29,6 +31,7 @@ const gateway = new (require("./gateway"))({
             } catch (e) {
                 logger.error(`An error occured: ${e}`);
                 console.trace(e);
+                res.status(500).send(`{"success":false}`);
             }
         });
         app.use("/service/" + serviceName, router);
