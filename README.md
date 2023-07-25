@@ -4,6 +4,3 @@
   # CraftingStore Gateway Service
   GoPay or other not out-of-box gateways support to CraftingStore.
 </div>
-
-### About
-In construction
